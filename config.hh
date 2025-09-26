@@ -1,0 +1,17 @@
+/* Copyright 2025 Punch Software
+
+*/
+
+#ifndef PUNCH_CONFIG_H
+#define PUNCH_CONFIG_H
+
+#define PEASHOOTER_DELAY 2
+
+#define NORMAL_ZOMBIE_SPEED 1
+#define NORMAL_ZOMBIE_DELAY 1
+
+#define MAX_ENTITIES_PER_ROW 100
+#define MAX_ZOMBIES_PER_ROW 90
+#define MAX_PLANTS_PER_ROW 10
+
+#endif /* PUNCH_CONFIG_H */
