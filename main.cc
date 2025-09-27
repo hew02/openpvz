@@ -3,39 +3,32 @@
 #include <unistd.h>
 #include <list>
 #include <vector>
-#include <ctime>
+#include <algorithm>
+#include <chrono>
 
+#include "ecs.hh"
+#include "types.hh"
 #include "pvz.hh"
-#include "config.hh"
+#include "zombie.hh"
+#include "global.hh"
 
 using namespace std;
 
 #define KEY_ESC 27
 
-typedef struct {
-  uint8_t x;
-  uint8_t y;
-} vec2;
+struct userStats_t {
+  short waveNumber = 0; // -1 if lost
+} userStats;
 
-std::list<vec2> activeProjectilePositions;
-
-vector<short> nextUid = { 0 }; // Per row uid
-
-void PeashooterAI( long currentTime ) {
-    /*if ( !(*currentLane).empty() ) {
-      Shoot( currentTime );
-    }*/
+const char* UserStatsString( userStats_t stats, char *buf ) {
+  snprintf( buf, sizeof(buf), "Wave: %d", stats.waveNumber );
+  buf[strlen(buf)] = '\0';
+  return buf;
 }
 
-typedef struct {
-  char sprite;
-  int colorNum;
-} sprite_t;
+list<vec2> activeProjectilePositions;
 
-enum entityType_t {
-  PEASHOOTER,
-  ZOMBIE
-};
+cursorMode_t cursorMode;
 
 void Shoot( long currentTime, uint8_t lane, uint8_t x ) {
   activeProjectilePositions.push_back( 
@@ -43,76 +36,16 @@ void Shoot( long currentTime, uint8_t lane, uint8_t x ) {
   ); 
 }
 
-struct laneEntities_t {
-  vector<vec2>         positions;
-  vector<sprite_t>     sprites;
-  vector<long>         actionDelays;
-  vector<entityType_t> types;
-  vector<int8_t>      health;
-} laneEntities;
-
-void AddNewZombie( uint8_t lane, uint8_t x ) {
-  short uid = nextUid[lane]++; 
-  laneEntities.sprites[uid] = { 'z', 1 };
-  laneEntities.positions[uid] = { x, lane };
-  laneEntities.actionDelays[uid] = -NORMAL_ZOMBIE_DELAY;
-  laneEntities.types[uid] = ZOMBIE;
-  laneEntities.health[uid] = 4;
-}
-
-void AddNewPlant( uint8_t lane, uint8_t x ) {
-  short uid = nextUid[lane]++; 
-  laneEntities.sprites[uid] = { 'p', 2 };
-  laneEntities.positions[uid] = { x, lane };
-  laneEntities.actionDelays[uid] = -PEASHOOTER_DELAY;
-  laneEntities.types[uid] = PEASHOOTER;
-  laneEntities.health[uid] = 2;
-  // damage 1
-}
-
-void RemoveEntity( short uid ) {
-  laneEntities.sprites[uid] = { 'd', 2};
-}
-
-
-enum cursorMode_t {
-  NORMAL,
-  EX,
-  INSERT
-} cursorMode;
-
-const char* CursorModeString( enum cursorMode_t mode ) {
-  switch ( mode ) {
-    case NORMAL:
-      return "Normal";
-    case EX:
-      return "Ex";
-    case INSERT:
-      return "Insert";
-    default:
-      return "?";
-  }
-}
-
 int main( int argc, char **argv ) {
 
-  StartNCurses(); 
+  StartNCurses();
 
-  laneEntities.positions.resize(MAX_ENTITIES_PER_ROW);
-  laneEntities.sprites.resize(MAX_ENTITIES_PER_ROW);
-  laneEntities.actionDelays.resize(MAX_ENTITIES_PER_ROW);
-  laneEntities.types.resize(MAX_ENTITIES_PER_ROW);
-  laneEntities.health.resize(MAX_ENTITIES_PER_ROW);
+  InitECS();
 
   cursorMode = NORMAL;
   bool shouldQuit = false;
 
-  AddNewZombie( 0, 25 );
-  AddNewPlant( 0, 4 );
-
-  struct timespec startTime;
-  clock_gettime( CLOCK_MONOTONIC, &startTime );
-
+  auto startTime = chrono::steady_clock::now();
 
   int y, x;
   getyx( stdscr, y, x );
@@ -121,9 +54,8 @@ int main( int argc, char **argv ) {
 
   while ( !shouldQuit ) {
     // TODO: Use smaller denomination of time.
-    struct timespec currentTime;
-    clock_gettime( CLOCK_MONOTONIC, &currentTime );
-    long seconds = currentTime.tv_sec - startTime.tv_sec;
+    auto currentTime = chrono::steady_clock::now();
+    long long msecs = chrono::duration_cast<chrono::milliseconds>(currentTime - startTime).count();
 
     int winY, winX;
     getmaxyx( stdscr, winY, winX );
@@ -141,7 +73,7 @@ int main( int argc, char **argv ) {
           break;
         case KEY_DOWN:
         case 'j':
-          if ( y + 1 > winY ) break;
+          if ( y + 1 > winY - 2 ) break;
           y += 1;
           break;
         case KEY_LEFT:
@@ -155,8 +87,12 @@ int main( int argc, char **argv ) {
           x += 1;
           break;
 
-        case 'x': // Dig up plant?
+        case 'x': {
+          uint8_t id = laneEntities.spaces[x];
+
+          RemoveEntity( id, 0 );
           break;
+        }
         case ':':
         case ';':
           cursorMode = EX;
@@ -176,7 +112,19 @@ int main( int argc, char **argv ) {
           cursorMode = NORMAL;
           break;
         case 'p':
-          AddNewPlant( y, x );
+          AddNewPlant( y, x, PEASHOOTER );
+          break;
+        case 'n':
+          AddNewPlant( y, x, NUT );
+          break;
+        case 'c':
+          AddNewPlant( y, x, CHOMPER );
+          break;
+        case 'z':
+          AddNewZombie( y, x, ZOMBIE );
+          break;
+        case 's':
+          AddNewZombie( y, x, ZOMBIE_SPRINTER );
           break;
         case -1:
           break;
@@ -189,13 +137,22 @@ int main( int argc, char **argv ) {
           cursorMode = NORMAL;
           exBuf[0] = '\0';
           break;
+        case KEY_ENTER: {
+          if ( strcmp(exBuf, "q") == 0 ) {
+            endwin();
+            exit( 0 );
+          } else {
+            strncpy( exBuf, "Command not available", 20 );
+          }
+          cursorMode = NORMAL;
+          break;
+        }
         case -1:
           break;
         default:
           strncat( exBuf, (char*)&c, 1 );
       }
     }
-
 
     move( y, x );
 
@@ -207,45 +164,50 @@ int main( int argc, char **argv ) {
       // Actor AI
       switch ( laneEntities.types[i] ) {
         case PEASHOOTER: {
+            if ( laneEntities.health[i] <= 0 ) {
+              RemoveEntity( i, 0 );
+              break;
+            }
+
             vec2 pos = laneEntities.positions[i];
-            if ( laneEntities.actionDelays[i] + PEASHOOTER_DELAY < seconds ) {
-              Shoot( seconds, pos.y, pos.x );
-              laneEntities.actionDelays[i] = seconds;
+            if ( laneEntities.actionDelays[i] + PEASHOOTER_DELAY < msecs ) {
+              Shoot( msecs, pos.y, pos.x );
+              laneEntities.actionDelays[i] = msecs;
             }
           }
           break;
-        case ZOMBIE: {
+
+        case NUT: {
           if ( laneEntities.health[i] <= 0 ) {
-            RemoveEntity( i );
+            RemoveEntity( i, 0 );
             break;
-          }
-          if ( laneEntities.actionDelays[i] + NORMAL_ZOMBIE_DELAY < seconds ) {
-            laneEntities.positions[i].x -= NORMAL_ZOMBIE_SPEED;
-            laneEntities.actionDelays[i] = seconds;
           }
           break;
         }
+
+        case CHOMPER: {
+            uint8_t _x = laneEntities.positions[i].x;
+            if ( laneEntities.spaces[_x+1] != -1 
+                 && laneEntities.types[laneEntities.spaces[_x+1]] == ZOMBIE ) {
+              laneEntities.states[i] = EATING;
+              laneEntities.health[laneEntities.spaces[_x+1]] = 0;
+              laneEntities.sprites[i].sprite = 'c';
+              break;
+            }
+          }
+          break;
+        
+        case ZOMBIE_SPRINTER:
+        case ZOMBIE:
+          UpdateZombieAI( i, laneEntities.types[i], msecs );
+          break;
+
         default:
           break;
       }
     }
 
-
-    /*laneEntities..erase(
-        remove_if(
-          laneEntities.zombies.begin(),
-          laneEntities.zombies.end(),
-          [](Zombie z) { 
-            if ( z.health <= 0 ) {
-              return true;
-            } else {
-              return false;
-            }
-          }
-        ),
-        laneEntities.zombies.end()
-      );*/
-    
+        
     // Update
     auto proj = activeProjectilePositions.begin();
     while ( proj != activeProjectilePositions.end() ) {
@@ -265,7 +227,7 @@ int main( int argc, char **argv ) {
       
       if ( laneEntities.types[i] == ZOMBIE
            && x == laneEntities.positions[i].x ) {
-        laneEntities.health[i] = 0; // TODO: projectile damage
+        laneEntities.health[i] -= 1; // TODO: projectile damage
         --proj;
         proj = activeProjectilePositions.erase( proj );
         break;
@@ -276,13 +238,16 @@ int main( int argc, char **argv ) {
   }
 
 
-    /*attron( COLOR_PAIR(8) );
-    for ( int i = 1; i < 12; i += 2 ) {
-      mvhline( i, 0, ' ', winX );
+    attron( COLOR_PAIR(8) );
+    for ( int i = 1; i < 6; i += 2 ) {
+      mvhline( i, 0, ' ', 48 );
     }
-    attroff( COLOR_PAIR(8) );*/
+    attroff( COLOR_PAIR(8) );
 
     mvaddstr( winY - 2, 0, CursorModeString(cursorMode) );
+    char userStatsStr[256];
+    UserStatsString( userStats, userStatsStr );
+    mvaddstr( winY - 4, 0, userStatsStr );
     mvaddstr( winY - 1, 0, exBuf );
 
 

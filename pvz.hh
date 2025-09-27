@@ -8,6 +8,7 @@
 #include <ncurses.h>
 
 #define COLOR_GRAY 15
+#define COLOR_BROWN 16
 
 class Actor {
   public:
@@ -50,6 +51,7 @@ inline void StartNCurses( void ) {
 
     if ( COLORS >= 16 ) {
       init_color( COLOR_GRAY, 200, 200, 200 );
+      init_color( COLOR_BROWN, 647, 165, 165 );
     } else {
       printw("No more than 16 colors supported!");
     }
@@ -62,6 +64,20 @@ inline void StartNCurses( void ) {
     init_pair(6, COLOR_MAGENTA, COLOR_BLACK);
     init_pair(7, COLOR_WHITE,   COLOR_BLACK);
     init_pair(8, COLOR_WHITE,   COLOR_GRAY);
+    init_pair(9, COLOR_BROWN,   COLOR_BLACK);
+  }
+}
+
+inline const char* CursorModeString( enum cursorMode_t mode ) {
+  switch ( mode ) {
+    case NORMAL:
+      return "Normal";
+    case EX:
+      return "Ex";
+    case INSERT:
+      return "Insert";
+    default:
+      return "?";
   }
 }
 
