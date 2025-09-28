@@ -52,8 +52,9 @@ enum modifier_t {
   M_normal
 };
 
-struct attack_t {
-
+enum projectile_t {
+  B_default,
+  B_freeze
 };
 
 enum entityTeam_t { T_zombie, T_plant, T_proj } __attribute__((__packed__));

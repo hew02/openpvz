@@ -8,11 +8,12 @@
 #include <clocale>
 #include <ncurses.h>
 
-#include "global.hh"
-#include "types.hh"
+#include "global.hpp"
+#include "types.hpp"
 
 #define COLOR_GRAY 15
 #define COLOR_BROWN 16
+#define COLOR_LIGHTGRAY 17
 
 class Actor {
   public:
@@ -55,6 +56,7 @@ inline void StartNCurses( void ) {
 
     if ( COLORS >= 16 ) {
       init_color( COLOR_GRAY, 200, 200, 200 );
+      init_color( COLOR_LIGHTGRAY, 500, 500, 500 );
       init_color( COLOR_BROWN, 647, 400, 165 );
     } else {
       printw("No more than 16 colors supported!");
@@ -69,6 +71,7 @@ inline void StartNCurses( void ) {
     init_pair(7, COLOR_WHITE,   COLOR_BLACK);
     init_pair(8, COLOR_WHITE,   COLOR_GRAY);
     init_pair(PAIR_BROWN_BLACK, COLOR_BROWN,   COLOR_BLACK);
+    init_pair(PAIR_GRAY_BLACK, COLOR_LIGHTGRAY,   COLOR_BLACK);
   }
 }
 

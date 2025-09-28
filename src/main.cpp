@@ -11,13 +11,13 @@
 #include <ncurses.h>
 #include <unistd.h>
 #include <vector>
-#include <stack>
+#include <queue>
 
 #include <entt/entt.hpp>
 
-#include "include/global.hh"
-#include "include/pvz.hh"
-#include "include/types.hh"
+#include "include/global.hpp"
+#include "include/pvz.hpp"
+#include "include/types.hpp"
 
 using namespace std;
 
@@ -35,13 +35,11 @@ const char *UserStatsString(userStats_t stats, char *buf) {
   return buf;
 }
 
-// list<vec2> activeProjectilePositions;
-
 entt::entity rowPositions[ROW_LENGTH];
 
 cursorMode_t cursorMode;
 
-stack<entt::entity> zombieOrder = {};
+queue<entt::entity> zombieOrder = {};
 
 
 void Draw(entt::registry &registry) {
@@ -52,72 +50,82 @@ void Draw(entt::registry &registry) {
     mvaddch(pos.y, pos.x, sprite.sprite);
     attroff(COLOR_PAIR(sprite.colorNum));
   });
-
-  for (auto [entity, pos, sprite] : view.each()) {
-  }
 }
 
-void DamageSystem(entt::registry &registry, long long msecs) {
-  auto view = registry.view<damage_t, targetedEntity_t>();
+void DamageEntity(entt::registry &registry, entt::entity target, uint8_t damage) {
+  stats_t updatedStats = registry.get<stats_t>(target);
+  if (updatedStats.health - damage <= 0) {
+    updatedStats.health = 0;
+  } else {
+    updatedStats.health -= damage;
+  }
+  registry.replace<stats_t>(target, updatedStats);
+}
 
-  vector<entt::entity> toDestroy;
+void ProjectileSystem(entt::registry &registry, vector<entt::entity> &toDestroy) {
+  auto view = registry.view<projectile_t, damage_t, position_t, targetedEntity_t>();
 
-
-  view.each([&](const auto entity, const auto &damage, const auto &targeting) {
-
-    if (targeting.reachedDest) {
-      toDestroy.push_back(entity);
-
+  view.each([&](const auto entity,
+                const auto &projType, 
+                const auto &damage,
+                const auto &pos, 
+                const auto &targeting) {
+    if (targeting.target == entt::null) {
+      return;
     }
 
-  });
+    if (zombieOrder.empty()) {
+      targetedEntity_t _targeting =
+        registry.get<targetedEntity_t>(entity);
+      _targeting.target = entt::null;
+      _targeting.reachedDest = false;
+      registry.replace<targetedEntity_t>(entity, _targeting);
+      return;
+    } else if (targeting.target != zombieOrder.front()) {
+      targetedEntity_t targeting =
+        registry.get<targetedEntity_t>(entity);
+      targeting.target = zombieOrder.front();
+      targeting.reachedDest = false;
+      registry.replace<targetedEntity_t>(entity, targeting);
+    }
 
-
-  for (auto entity : toDestroy) {
-    registry.destroy(entity);
-  }
-
-}
-
-void ProjectileSystem(entt::registry &registry, long long msecs) {
-  auto view = registry.view<position_t, targetedEntity_t>();
-
-  view.each([&](const auto entity, const auto &pos, const auto &targeting) {
     position_t targetPos = registry.get<position_t>(targeting.target);
     if (pos.x >= targetPos.x) {
       targetedEntity_t targeting =
-          registry.get<targetedEntity_t>(entity);
+        registry.get<targetedEntity_t>(entity);
       targeting.target = targeting.target;
       targeting.reachedDest = true;
+      toDestroy.push_back(entity);
       registry.replace<targetedEntity_t>(entity, targeting);
+
+      DamageEntity(registry, targeting.target, damage);
     }
   });
 }
 
 // TODO this could be decoupled a lot, just being lazy now
-void PositionSystem(entt::registry &registry, long long msecs) {
+void PositionSystem(entt::registry &registry, 
+                    vector<entt::entity> &toDestroy) {
   auto view = registry.view<position_t, velocity_t>();
 
-  vector<entt::entity> toDestroy;
-
-  view.each([&registry, &toDestroy](const auto entity, const auto &pos,
-                                    const auto &vel) {
+  view.each([&](const auto entity, 
+                const auto &pos,
+                const auto &vel) {
     int8_t nextPos = pos.x + vel.dx;
 
     if (nextPos < 0 || nextPos > ROW_LENGTH - 1) {
       toDestroy.push_back(entity);
-      rowPositions[pos.x] = entt::null;
       return;
     }
 
     entityKind_t kind = registry.get<entityKind_t>(entity);
 
     if (kind.side == T_proj) {
-      registry.replace<position_t>(entity, pos.x + vel.dx);
+      registry.replace<position_t>(entity, static_cast<uint8_t>(pos.x + vel.dx));
     } else if (rowPositions[nextPos] == entt::null) {
       rowPositions[pos.x] = entt::null;
       rowPositions[nextPos] = entity;
-      registry.replace<position_t>(entity, pos.x + vel.dx);
+      registry.replace<position_t>(entity, static_cast<uint8_t>(pos.x + vel.dx));
     } else {
       entityKind_t kindOfTarget =
           registry.get<entityKind_t>(rowPositions[nextPos]);
@@ -136,78 +144,109 @@ void PositionSystem(entt::registry &registry, long long msecs) {
     }
   });
 
-  for (auto entity : toDestroy) {
-    registry.destroy(entity);
-  }
-
   /*for (auto [entity, pos, vel] : view.each()) {
   }*/
 }
 
-void DamageEntity(entt::registry &registry, entt::entity attacker,
-                  entt::entity target, uint8_t damage) {
-  stats_t updatedStats = registry.get<stats_t>(target);
-  updatedStats.health -= damage;
-  registry.replace<stats_t>(target, updatedStats);
-}
 
-void StateSystem(entt::registry &registry, long long msecs) {
+void StateSystem(entt::registry &registry, 
+                 vector<entt::entity> &toDestroy, 
+                 long long msecs) {
   auto view = registry.view<state_t, position_t, stats_t, entityKind_t>();
 
-  vector<entt::entity> toDestroy;
-
-  view.each([&registry, &msecs,
-             &toDestroy](const auto entity, const auto &state, const auto &pos,
-                         const auto &stats, const auto &kind) {
+  view.each([&](const auto entity, const auto &state, const auto &pos,
+                const auto &stats, const auto &kind) {
     if (stats.health == 0) {
       toDestroy.push_back(entity);
-      rowPositions[pos.x] = entt::null;
-    }
-
-    if (stats.cooldown + NORMAL_ZOMBIE_SPEED > msecs) {
       return;
     }
 
-    stats_t updatedStats = registry.get<stats_t>(entity);
-    updatedStats.cooldown = msecs;
-    registry.replace<stats_t>(entity, updatedStats);
-
     switch (state) {
-    case WALKING:
-      PositionSystem(registry, msecs);
-      break;
-    case EATING:
+    case WALKING: {
+      if (stats.cooldown + NORMAL_ZOMBIE_SPEED < msecs) {
+        registry.replace<velocity_t>(entity, -1, 0);
+
+        stats_t updatedStats = registry.get<stats_t>(entity);
+        updatedStats.cooldown = msecs;
+        registry.replace<stats_t>(entity, updatedStats);
+      } else {
+        registry.replace<velocity_t>(entity, 0, 0);
+      }
+    } break;
+    case EATING: {
       if (kind.side == T_zombie) {
+        if (stats.cooldown + NORMAL_ZOMBIE_EATING_SPEED < msecs) break;
         // Have a plant track its attacker then set that to null?
         entt::entity target = rowPositions[pos.x - 1];
+
+        stats_t updatedStats = registry.get<stats_t>(entity);
+        updatedStats.cooldown = msecs;
+        registry.replace<stats_t>(entity, updatedStats);
+
         if (target == entt::null) {
           registry.replace<state_t>(entity, WALKING);
         } else {
-          DamageEntity(registry, entity, target, stats.damage);
+          //entityKind_t targetKind = registry.get<entityKind_t>(target);
+          DamageEntity(registry, target, stats.damage);
+        }
+      } else {
+        // HACK: assumes a chomper as that's the only plant that 'eats'
+        if (stats.cooldown + CHOMPER_DELAY < msecs) {
+          registry.replace<state_t>(entity, IDLE);
+          registry.replace<sprite_t>(entity,
+                                     CHOMPER_SPRITE_READY, 
+                                     PAIR_MAGENTA_BLACK);
+        } 
+#ifdef ALLOW_ANIMATIONS 
+        else {
+          char frames[TOTAL_ANIMATION_TICKS] = { 'C', 'c', 'C', 'c' };
+          registry.replace<sprite_t>(entity,
+                                     frames[animationTick], 
+                                     PAIR_GRAY_BLACK);
+        }
+#endif
+      }
+    } break;
+    case SHOOTING: {
+      if (!zombieOrder.empty()
+          && stats.cooldown + PEASHOOTER_DELAY < msecs) {
+        const auto bullet = registry.create();
+        registry.emplace<position_t>(bullet, 
+                                     static_cast<uint8_t>(pos.x + 1),
+                                     pos.y);
+        registry.emplace<sprite_t>(bullet, PEA_SPRITE, PAIR_GREEN_BLACK);
+        registry.emplace<velocity_t>(bullet, 
+                                     static_cast<int8_t>(1), 
+                                     static_cast<int8_t>(0));
+        registry.emplace<entityKind_t>(bullet, T_proj);
+        registry.emplace<damage_t>(bullet, 1u);
+        registry.emplace<projectile_t>(bullet, B_default);
+        registry.emplace<targetedEntity_t>(bullet, zombieOrder.front(), false);
+
+        stats_t updatedStats = registry.get<stats_t>(entity);
+        updatedStats.cooldown = msecs;
+        registry.replace<stats_t>(entity, updatedStats);
+      }
+    } break;
+    case IDLE: {
+      if (kind.pl == P_chomper) {
+        entt::entity maybeEnemy = rowPositions[pos.x+1];
+        if (maybeEnemy != entt::null
+            && registry.get<entityKind_t>(maybeEnemy).side == T_zombie ) {
+          DamageEntity(registry, maybeEnemy, 231u);
+          registry.replace<state_t>(entity, EATING);
+          registry.replace<sprite_t>(entity,
+                                     CHOMPER_SPRITE_EATING, 
+                                     PAIR_GRAY_BLACK);
+          // Start cooldown
+          stats_t updatedStats = registry.get<stats_t>(entity);
+          updatedStats.cooldown = msecs;
+          registry.replace<stats_t>(entity, updatedStats);
         }
       }
-      break;
-    case SHOOTING: {
-      if (!zombieOrder.empty()) {
-        const auto bullet = registry.create();
-        registry.emplace<position_t>(bullet, pos.x + 1, pos.y);
-        registry.emplace<sprite_t>(bullet, PEA_SPRITE, PAIR_GREEN_BLACK);
-        registry.emplace<velocity_t>(bullet, 1, 0);
-        registry.emplace<entityKind_t>(bullet, T_proj);
-        registry.emplace<damage_t>(bullet, 1);
-        registry.emplace<targetedEntity_t>(bullet, zombieOrder.top(), false);
-      }
-    }
-
-    break;
-    case IDLE:
-      break;
+    } break;
     }
   });
-
-  for (auto entity : toDestroy) {
-    registry.destroy(entity);
-  }
 }
 
 int main(int argc, char **argv) {
@@ -227,6 +266,8 @@ int main(int argc, char **argv) {
 
   char exBuf[256] = {};
   char cmdBuf[256] = {};
+
+  long long lastTickTime = 0;
 
   while (!shouldQuit) {
     // TODO: Use smaller denomination of time.
@@ -313,6 +354,9 @@ int main(int argc, char **argv) {
       case 'p': {
         if (userStats.amountOfSun - PEASHOOTER_COST < 0) {
           break;
+        } else if (rowPositions[x] != entt::null) {
+          strcpy(exBuf, "A plant is already there!");
+          break;
         }
         const auto entity = registry.create();
         registry.emplace<position_t>(entity, x, y);
@@ -337,13 +381,19 @@ int main(int argc, char **argv) {
         registry.emplace<position_t>(entity, x, y);
         registry.emplace<sprite_t>(entity, CHOMPER_SPRITE_READY,
                                    PAIR_MAGENTA_BLACK);
+        registry.emplace<entityKind_t>(entity, T_plant, P_chomper);
+        registry.emplace<stats_t>(entity, 8, 999, 0);
+        registry.emplace<damage_t>(entity, 999);
+        registry.emplace<state_t>(entity, IDLE);
+        registry.emplace<targetedEntity_t>(entity, entt::null, false);
+        rowPositions[x] = entity;
       } break;
 #ifdef ENABLE_DEBUG_TOOLS
       case 'z': {
         const auto entity = registry.create();
         registry.emplace<position_t>(entity, x, y);
         registry.emplace<sprite_t>(entity, ZOMBIE_SPRITE, PAIR_RED_BLACK);
-        registry.emplace<velocity_t>(entity, -1, 0);
+        registry.emplace<velocity_t>(entity, 0, 0);
         entityKind_t kind = {T_zombie, {.zom = Z_default}};
         registry.emplace<entityKind_t>(entity, kind);
         registry.emplace<stats_t>(entity, 8, 1, 0);
@@ -388,89 +438,24 @@ int main(int argc, char **argv) {
       }
     }
 
-    /*for ( int i = 0; i < laneEntities.types.size(); i++ ) {
-      if ( i > nextUid[0] - 1 ) {
-        break;
-      }
-
-      // Actor AI
-      switch ( laneEntities.types[i].variant.pl ) {
-        case P_PEASHOOTER: {
-            if ( laneEntities.health[i] <= 0 ) {
-              RemoveEntity( i, 0 );
-              break;
-            }
-
-            vec2 pos = laneEntities.positions[i];
-            if ( laneEntities.actionDelays[i] + PEASHOOTER_DELAY < msecs ) {
-              Shoot( msecs, pos.y, pos.x );
-              laneEntities.actionDelays[i] = msecs;
-            }
-          }
-          break;
-
-        case P_NUT: {
-          if ( laneEntities.health[i] <= 0 ) {
-            RemoveEntity( i, 0 );
-            break;
-          }
-          break;
-        }
-
-        case P_CHOMPER: {
-            uint8_t _x = laneEntities.positions[i].x;
-            if ( laneEntities.spaces[_x+1] != -1
-                 && laneEntities.types[laneEntities.spaces[_x+1]].side ==
-    T_ZOMBIE ) { laneEntities.states[i] = EATING;
-              laneEntities.health[laneEntities.spaces[_x+1]] = 0;
-              laneEntities.sprites[i].sprite = 'c';
-              break;
-            }
-          }
-          break;
-      }
-
-      switch ( laneEntities.types[i].variant.zom ) {
-        case Z_SPRINTER:
-        case Z_DEFAULT:
-          UpdateZombieAI( i, laneEntities.types[i], msecs );
-          break;
-
-        default:
-          break;
-      }
-    }*/
-
-    // Update
-    /*auto proj = activeProjectilePositions.begin();
-    while ( proj != activeProjectilePositions.end() ) {
-      uint8_t x = proj->x;
-      if ( x > winX ) {
-        proj = activeProjectilePositions.erase( proj );
-        continue;
-      }
-
-      proj->x += 1;
-      ++proj;
-
-    for ( int i = 0; i < laneEntities.types.size(); i++ ) {
-      if ( i > nextUid[0] - 1 ) {
-        break;
-      }
-
-      if ( ecs_GetType(i).side == T_ZOMBIE
-           && x == laneEntities.positions[i].x ) {
-        laneEntities.health[i] -= 1; // TODO: projectile damage
-        --proj;
-        proj = activeProjectilePositions.erase( proj );
-        break;
-      }
+    
+    if ( lastTickTime + ANIMATION_TICK_SPEED < msecs ) {
+      if (animationTick + 1 >= TOTAL_ANIMATION_TICKS)
+        animationTick = 0;
+      else 
+        animationTick++;
+      
+      lastTickTime = msecs;
     }
 
+    vector<entt::entity> toDestroy;
 
-  }*/
+    StateSystem(registry, toDestroy, msecs);
+    PositionSystem(registry, toDestroy);
+    ProjectileSystem(registry, toDestroy);
 
-    curs_set(0);
+    clear();
+    
     attron(COLOR_PAIR(8));
     for (int i = 1; i < 6; i += 2) {
       mvhline(i, 0, ' ', 48);
@@ -484,39 +469,22 @@ int main(int argc, char **argv) {
     mvaddstr(winY - 1, 0, exBuf);
     mvaddstr(winY - 1, winX - strlen(cmdBuf) - 2, cmdBuf);
 
-    StateSystem(registry, msecs);
-    PositionSystem(registry, msecs);
-    ProjectileSystem(registry, msecs);
-    DamageSystem(registry, msecs);
-
     Draw(registry);
 
-    /*for ( int i = 0; i < laneEntities.sprites.size(); i++ ) {
-      if ( i > nextUid[0] - 1 ) {
-        break;
-      }
-
-      sprite_t s = laneEntities.sprites[i];
-      vec2 pos = laneEntities.positions[i];
-      attron( COLOR_PAIR(s.colorNum) );
-      mvaddch( pos.y, pos.x, s.sprite );
-      attroff( COLOR_PAIR(s.colorNum) );
-    }
-
-    // Draw projectiles
-    proj = activeProjectilePositions.begin();
-    while ( proj != activeProjectilePositions.end() ) {
-      mvaddstr( proj->y, proj->x, "•" );
-      ++proj;
-    }*/
-
     move(y, x);
-    curs_set(1);
 
     refresh();
-    clear();
+    usleep(60000);
 
-    usleep(40000);
+    for (auto entity : toDestroy) {
+      position_t pos = registry.get<position_t>(entity);
+      entityKind_t kind = registry.get<entityKind_t>(entity);
+      rowPositions[pos.x] = entt::null;
+      if (kind.side == T_zombie) {
+        zombieOrder.pop();
+      }
+      registry.destroy(entity);
+    }
   }
 
   endwin();
