@@ -4,5 +4,5 @@ Rules:
   TK
 
 Deps on:
-  + ncurse for now but am looking to: https://github.com/infinnovation-dev/incurses
+  + ncurses for now but am looking to: https://github.com/infinnovation-dev/incurses
   + https://github.com/skypjack/entt
