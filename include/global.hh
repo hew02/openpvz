@@ -1,0 +1,48 @@
+/* Copyright 2025 Punch Software
+
+*/
+
+#ifndef PUNCH_CONFIG_H
+#define PUNCH_CONFIG_H
+
+#define ENABLE_DEBUG_TOOLS
+
+#define KEY_ESC 27
+
+#define PAIR_GREEN_BLACK 2
+#define PAIR_BROWN_BLACK 9
+#define PAIR_CYAN_BLACK 5
+#define PAIR_RED_BLACK 1
+#define PAIR_MAGENTA_BLACK 6
+
+#define NUT_SPRITE 'n'
+#define NUT_COLOR 1
+#define PEASHOOTER_SPRITE 'p'
+#define CHOMPER_SPRITE_READY 'C'
+#define CHOMPER_SPRITE_EATING 'c'
+
+#define ZOMBIE_SPRITE 'z'
+#define SPRINTER_SPRITE 'z'
+
+#define PEA_SPRITE '.'
+
+#define ROW_LENGTH 48
+#define NUM_ROWS 7
+
+#define PEASHOOTER_COST 150
+
+/* Entity Config */
+#define MAX_ENTITIES_PER_ROW 100
+
+#define MAX_ZOMBIES_PER_ROW 90
+#define MAX_PLANTS_PER_ROW 10
+
+#define MAX_COMPONENTS 32
+
+#define PEASHOOTER_DELAY 2000
+
+#define NORMAL_ZOMBIE_SPEED   1000
+
+#define SPRINTER_ZOMBIE_DELAY 500
+
+#endif /* PUNCH_CONFIG_H */
