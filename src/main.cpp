@@ -199,7 +199,7 @@ void StateSystem(entt::registry &registry,
         } 
 #ifdef ALLOW_ANIMATIONS 
         else {
-          char frames[TOTAL_ANIMATION_TICKS] = { 'C', 'c', 'C', 'c' };
+          char frames[TOTAL_ANIMATION_TICKS] = { 'c', 'C', 'c', 'C' };
           registry.replace<sprite_t>(entity,
                                      frames[animationTick], 
                                      PAIR_GRAY_BLACK);
@@ -474,7 +474,7 @@ int main(int argc, char **argv) {
     move(y, x);
 
     refresh();
-    usleep(60000);
+    usleep(40000);
 
     for (auto entity : toDestroy) {
       position_t pos = registry.get<position_t>(entity);
