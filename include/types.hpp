@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <entt/entity/fwd.hpp>
+#include <sys/types.h>
 
 #define MAX_EFFECTS 6
 
@@ -15,6 +16,11 @@ enum cursorMode_t { NORMAL, EX, INSERT };
 /* Components */
 
 struct position_t {
+  uint8_t x;
+  uint8_t y;
+};
+
+struct origin_t {
   uint8_t x;
   uint8_t y;
 };
@@ -33,6 +39,7 @@ struct organization_t {
   bool inMob;
 };
 
+typedef uint8_t range_t;
 typedef uint16_t damage_t;
 
 enum effect_t {
@@ -40,6 +47,7 @@ enum effect_t {
   E_freeze = 1 << 0, // 0001
   E_poison = 1 << 1, // 0010
   E_speed  = 1 << 2, // 0100
+  E_explosion = 1 << 3, // 1000
 } __attribute__((__packed__));
 
 struct stats_t {
@@ -66,7 +74,13 @@ enum plant_t {
   P_chomper,
   P_snowpea,
   P_repeater,
-  P_sunflower
+  P_sunflower,
+  P_cherrybomb,
+  P_puff_shroom,
+  P_sun_shroom,
+  P_fume_shroom,
+  P_grave_buster,
+  P_ice_shroom
 } __attribute__((__packed__));
 
 enum zombie_t {

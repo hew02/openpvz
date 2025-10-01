@@ -7,9 +7,13 @@
 
 #include <cstdint>
 
+/** As the name implies */
 #define ENABLE_DEBUG_TOOLS
 
 #define KEY_ESC 27
+
+#define SCREEN_WIDTH 50
+#define SCREEN_HEIGHT 18
 
 #define MAX_ANIMATED_SPRITE_FRAMES 4
 
@@ -49,19 +53,24 @@
 
 #define PEASHOOTER_DELAY 3500
 
-
 #define NUT_SPRITE 'n'
 #define NUT_COST 150u
 
 #define CHOMPER_SPRITE_READY 'C'
 #define CHOMPER_SPRITE_EATING 'c'
 #define CHOMPER_COST 200u
-#define CHOMPER_DELAY 20000
+#define CHOMPER_DELAY 30000
 
 #define SUNFLOWER_SPRITE 's'
 #define SUNFLOWER_SPRITE_COLLECT 'S'
 #define SUNFLOWER_COST 50u
-#define SUNFLOWER_DELAY 10000
+#define SUNFLOWER_DELAY 20000
+
+#define CHERRYBOMB_SPRITE 'c'
+#define CHERRYBOMB_COST 150u
+
+#define POTATOMINE_SPRITE 'p'
+#define POTATOMINE_COST 50u
 
 
 #endif /* PUNCH_CONFIG_H */

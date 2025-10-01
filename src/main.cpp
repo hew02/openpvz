@@ -1,17 +1,18 @@
 #include <algorithm>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <entt/entity/entity.hpp>
-#include <entt/entity/fwd.hpp>
 #include <iterator>
 #include <list>
-#include <ncurses.h>
 #include <queue>
 #include <unistd.h>
 #include <vector>
 
+#include <entt/entity/entity.hpp>
+#include <entt/entity/fwd.hpp>
 #include <entt/entt.hpp>
+#include <ncurses.h>
 
 #include "include/global.hpp"
 #include "include/pvz.hpp"
@@ -20,7 +21,23 @@
 #define ALLOW_ANIMATIONS
 #include "np.hpp"
 
+#define BACKGROUND_RED 20
+
 using namespace std;
+
+void SignalHandler(int signum) {
+  switch (signum) {
+
+  case SIGTERM:
+  case SIGINT:
+    np::Terminate();
+    fprintf(stdout, "Thanks for playing :)\n");
+    exit(EXIT_SUCCESS);
+
+  default:
+    break;
+  }
+}
 
 const char *UserStatsString(PvZ_t pvz, char *buf, size_t sizeOfBuf) {
   snprintf(buf, sizeOfBuf, "Wave: %d | Sun: %d", pvz.waveNumber,
@@ -66,21 +83,31 @@ void DamageEntity(entt::registry &registry, entt::entity target, uint8_t damage,
   registry.replace<stats_t>(target, updatedStats);
 }
 
+/**
+ * @brief
+ *
+ * @param registry
+ * @param toDestroy
+ *
+ * @note Projectiles will auto-correct to closest enemy, may perhaps be a flaw
+ * later on.
+ */
 void ProjectileSystem(entt::registry &registry,
                       vector<entt::entity> &toDestroy) {
-  auto view = registry.view<effect_t, damage_t, position_t, targetedEntity_t>();
+  auto view = registry.view<effect_t, damage_t, range_t, origin_t, position_t,
+                            targetedEntity_t>();
 
   view.each([&](const auto entity, const auto &projType, const auto &damage,
-                const auto &pos, const auto &targeting) {
-    if (targeting.target == entt::null) {
-      return;
-    }
-
+                const auto &range, const auto &org, const auto &pos,
+                const auto &targeting) {
     if (zombieOrder.empty()) {
       targetedEntity_t _targeting = registry.get<targetedEntity_t>(entity);
       _targeting.target = entt::null;
       _targeting.reachedDest = false;
       registry.replace<targetedEntity_t>(entity, _targeting);
+      if (abs(org.x - pos.x) > range || abs(org.y - pos.y) > range) {
+        toDestroy.push_back(entity);
+      }
       return;
     } else if (targeting.target != zombieOrder.front()) {
       targetedEntity_t targeting = registry.get<targetedEntity_t>(entity);
@@ -98,6 +125,11 @@ void ProjectileSystem(entt::registry &registry,
       registry.replace<targetedEntity_t>(entity, targeting);
 
       DamageEntity(registry, targeting.target, damage, projType);
+      return;
+    }
+
+    if (abs(org.x - pos.x) > range || abs(org.y - pos.y) > range) {
+      toDestroy.push_back(entity);
     }
   });
 }
@@ -108,9 +140,11 @@ void PositionSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
   auto view = registry.view<position_t, velocity_t>();
 
   view.each([&](const auto entity, const auto &pos, const auto &vel) {
-    int8_t nextPos = pos.x + vel.dx;
+    int8_t nextPosX = pos.x + vel.dx;
+    int8_t nextPosY = pos.y + vel.dy;
 
-    if (nextPos < 0 || nextPos > ROW_LENGTH - 1) {
+    if (nextPosX < 0 || nextPosX > ROW_LENGTH - 1 || nextPosY < 0 ||
+        nextPosY > NUM_ROWS) {
       toDestroy.push_back(entity);
       return;
     }
@@ -118,14 +152,14 @@ void PositionSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
     entityKind_t kind = registry.get<entityKind_t>(entity);
 
     if (kind.side == T_proj) {
-      registry.replace<position_t>(entity, nextPos, pos.y);
-    } else if (pvz->rowPositions[pos.y][nextPos] == entt::null) {
+      registry.replace<position_t>(entity, nextPosX, nextPosY);
+    } else if (pvz->rowPositions[nextPosY][nextPosX] == entt::null) {
       pvz->rowPositions[pos.y][pos.x] = entt::null;
-      pvz->rowPositions[pos.y][nextPos] = entity;
-      registry.replace<position_t>(entity, nextPos, pos.y);
+      pvz->rowPositions[nextPosY][nextPosX] = entity;
+      registry.replace<position_t>(entity, nextPosX, nextPosY);
     } else {
       entityKind_t kindOfTarget =
-          registry.get<entityKind_t>(pvz->rowPositions[pos.y][nextPos]);
+          registry.get<entityKind_t>(pvz->rowPositions[nextPosY][nextPosX]);
 
       switch (kindOfTarget.side) {
       case T_plant:
@@ -146,21 +180,33 @@ void PositionSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
 }
 
 void SpawnNewBullet(entt::registry &registry, long long msecs, uint8_t x,
-                    uint8_t y, effect_t projType) {
+                    uint8_t y, damage_t damage, effect_t projType,
+                    uint8_t range, velocity_t vel) {
   const auto bullet = registry.create();
+
   registry.emplace<position_t>(bullet, x, y);
   switch (projType) {
   case E_freeze:
     registry.emplace<sprite_t>(bullet, PEA_SPRITE, COLOR_CYAN);
     break;
+  case E_explosion:
+    registry.emplace<sprite_t>(bullet, ' ', BACKGROUND_RED);
+    break;
   default:
     registry.emplace<sprite_t>(bullet, PEA_SPRITE, COLOR_GREEN);
   }
-  registry.emplace<velocity_t>(bullet, 1u, 0u);
+  registry.emplace<velocity_t>(bullet, vel.dx, vel.dy);
   registry.emplace<entityKind_t>(bullet, T_proj);
-  registry.emplace<damage_t>(bullet, 1u);
+  registry.emplace<damage_t>(bullet, damage);
   registry.emplace<effect_t>(bullet, projType);
-  registry.emplace<targetedEntity_t>(bullet, zombieOrder.front(), false);
+  registry.emplace<range_t>(bullet, range);
+  registry.emplace<origin_t>(bullet, x, y);
+
+  if (!zombieOrder.empty()) {
+    registry.emplace<targetedEntity_t>(bullet, zombieOrder.front(), false);
+  } else {
+    registry.emplace<targetedEntity_t>(bullet, entt::null, false);
+  }
 }
 
 void StateSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
@@ -255,23 +301,20 @@ void StateSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
           updatedStats.cooldown = msecs;
           registry.replace<stats_t>(entity, updatedStats);
         }
-      } else if (!zombieOrder.empty() &&
-                 stats.cooldown + PEASHOOTER_DELAY < msecs) {
+      } else if (kind.pl == P_cherrybomb) {
 
-        if (kind.pl == P_peashooter) {
-          SpawnNewBullet(registry, msecs, pos.x, pos.y, {});
-        } else if (kind.pl == P_repeater) {
-          SpawnNewBullet(registry, msecs, pos.x, pos.y, {});
-          SpawnNewBullet(registry, msecs, pos.x + 1, pos.y, {});
-        } else if (kind.pl == P_snowpea) {
-          SpawnNewBullet(registry, msecs, pos.x, pos.y, E_freeze);
-        } else {
-          break;
+        velocity_t dir[8] = {
+            {1, 0}, {-1, 0},  {0, 1},  {0, -1},
+            {1, 1}, {-1, -1}, {-1, 1}, {1, -1},
+        };
+        for (uint8_t i = 0; i < 8; i++) {
+          SpawnNewBullet(registry, msecs, pos.x, pos.y, 255u, E_explosion, 0u,
+                         dir[i]);
+          SpawnNewBullet(registry, msecs, pos.x, pos.y, 255u, E_explosion, 1u,
+                         dir[i]);
         }
 
-        stats_t updatedStats = registry.get<stats_t>(entity);
-        updatedStats.cooldown = msecs;
-        registry.replace<stats_t>(entity, updatedStats);
+        toDestroy.push_back(entity);
 
       } else if (kind.pl == P_sunflower &&
                  stats.cooldown + SUNFLOWER_DELAY < msecs) {
@@ -280,6 +323,27 @@ void StateSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
         updatedSprite.sprite = SUNFLOWER_SPRITE_COLLECT;
         registry.replace<sprite_t>(entity, updatedSprite);
         registry.replace<state_t>(entity, GROWN);
+      } else if (!zombieOrder.empty() &&
+                 stats.cooldown + PEASHOOTER_DELAY < msecs) {
+
+        if (kind.pl == P_peashooter) {
+          SpawnNewBullet(registry, msecs, pos.x, pos.y, 1u, {}, ROW_LENGTH,
+                         {1, 0});
+        } else if (kind.pl == P_repeater) {
+          SpawnNewBullet(registry, msecs, pos.x, pos.y, 1u, {}, ROW_LENGTH,
+                         {1, 0});
+          SpawnNewBullet(registry, msecs, pos.x + 1, pos.y, 1u, {}, ROW_LENGTH,
+                         {1, 0});
+        } else if (kind.pl == P_snowpea) {
+          SpawnNewBullet(registry, msecs, pos.x, pos.y, 1u, E_freeze,
+                         ROW_LENGTH, {1, 0});
+        } else {
+          break;
+        }
+
+        stats_t updatedStats = registry.get<stats_t>(entity);
+        updatedStats.cooldown = msecs;
+        registry.replace<stats_t>(entity, updatedStats);
       }
     } break;
     default:
@@ -290,14 +354,28 @@ void StateSystem(entt::registry &registry, vector<entt::entity> &toDestroy,
 
 void RemoveEffect(stats_t stats, effect_t eff) { stats.effects &= ~E_freeze; }
 
+void DrawUI(PvZ_t &pvz, np::np &np) {
+  mvaddstr(np.winH - 2, 0, CursorModeString(pvz.mode));
+  char userStatsStr[256];
+  UserStatsString(pvz, userStatsStr, 256);
+  mvaddstr(np.winH - 4, 0, userStatsStr);
+  mvaddstr(np.winH - 1, 0, pvz.exBuf);
+  mvaddstr(np.winH - 1, np.winW - strlen(pvz.cmdBuf) - 2, pvz.cmdBuf);
+}
+
 int main(int argc, char **argv) {
+
+  signal(SIGINT, SignalHandler);
+  signal(SIGTERM, SignalHandler);
+
   entt::registry registry;
-
   np::np np = {};
-
   np::Init(np);
 
+  resizeterm(SCREEN_HEIGHT, SCREEN_WIDTH);
+
   init_pair(ZOMBIE_DEFAULT_FROZEN, COLOR_RED, COLOR_CYAN);
+  init_pair(BACKGROUND_RED, COLOR_WHITE, COLOR_RED);
 
   bool shouldQuit = false;
 
@@ -328,12 +406,7 @@ int main(int argc, char **argv) {
     {
       DrawBackyard(0, 0);
 
-      mvaddstr(np.winH - 2, 0, CursorModeString(pvz.mode));
-      char userStatsStr[256];
-      UserStatsString(pvz, userStatsStr, 256);
-      mvaddstr(np.winH - 4, 0, userStatsStr);
-      mvaddstr(np.winH - 1, 0, pvz.exBuf);
-      mvaddstr(np.winH - 1, np.winW - strlen(pvz.cmdBuf) - 2, pvz.cmdBuf);
+      DrawUI(pvz, np);
 
       Draw(registry);
       move(cy, cx);

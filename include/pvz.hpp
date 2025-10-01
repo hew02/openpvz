@@ -134,7 +134,8 @@ inline void KeyboardInteraction(PvZ_t *pvz, entt::registry &registry,
       pvz->cmdBuf[0] = '\0';
       break;
     case '\n':
-      if (registry.get<entityKind_t>(pvz->rowPositions[cy][cx]).pl ==
+      if (pvz->rowPositions[cy][cx] != entt::null &&
+          registry.get<entityKind_t>(pvz->rowPositions[cy][cx]).pl ==
               P_sunflower &&
           registry.get<state_t>(pvz->rowPositions[cy][cx]) == GROWN) {
         pvz->amountOfSun += 50;
@@ -198,7 +199,7 @@ inline void KeyboardInteraction(PvZ_t *pvz, entt::registry &registry,
         pvz->cmdBuf[0] = '\0';
         pvz->mode = NORMAL;
         break;
-      } else if (strcmp(pvz->cmdBuf, "sf") == 0) {
+      } else if (pvz->cmdBuf[0] == 's' && pvz->cmdBuf[1] == '\0') {
         AddPlant(pvz, registry, SUNFLOWER_COST, SUNFLOWER_SPRITE, COLOR_YELLOW,
                  2, 0, none, P_sunflower, cx, cy, msecs);
         strcpy(pvz->exBuf, "You planted a Sunflower");
@@ -223,6 +224,20 @@ inline void KeyboardInteraction(PvZ_t *pvz, entt::registry &registry,
         AddPlant(pvz, registry, SNOWPEA_COST, SNOWPEA_SPRITE, COLOR_CYAN, 3, 1,
                  ranged, P_snowpea, cx, cy, msecs);
         strcpy(pvz->exBuf, "You planted a Snowpea");
+        pvz->cmdBuf[0] = '\0';
+        pvz->mode = NORMAL;
+        break;
+      } else if (strcmp(pvz->cmdBuf, "c") == 0) {
+        AddPlant(pvz, registry, CHERRYBOMB_COST, CHERRYBOMB_SPRITE, COLOR_RED,
+                 6, 999, ranged, P_snowpea, cx, cy, msecs);
+        strcpy(pvz->exBuf, "You planted a Snowpea");
+        pvz->cmdBuf[0] = '\0';
+        pvz->mode = NORMAL;
+        break;
+      } else if (strcmp(pvz->cmdBuf, "cb") == 0) {
+        AddPlant(pvz, registry, CHERRYBOMB_COST, CHERRYBOMB_SPRITE, COLOR_RED,
+                 6, 999, ranged, P_cherrybomb, cx, cy, msecs);
+        strcpy(pvz->exBuf, "You planted a Cherrybomb");
         pvz->cmdBuf[0] = '\0';
         pvz->mode = NORMAL;
         break;
