@@ -7,7 +7,18 @@ A open-source, ASCII grahpics interpretation of the game Plants vs Zombies.
 
 ## Manual
 
-Todo
+### Plants
+
++ p / Peashooter
+  - The default projectile plant, shoots a single pea each cycle.
++ sp / Snowpea
+  - Like the peashooter, but adds a freezing modifier.
++ r / Repeater
+  - Like the peashooter, but shoots two peas each cycle.
++ sf / Sunflower
+  - Extra sun can be collected.
++ n / Walnut
++ c / Chomper
 
 ## Dependencies
   + ncurses for now but am looking to: https://github.com/infinnovation-dev/incurses
