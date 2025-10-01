@@ -3,7 +3,11 @@
 ![GitHub last commit](https://img.shields.io/github/last-commit/hew02/openpvz)
 ![GitHub release (latest by date including pre-releases)](https://img.shields.io/github/v/release/hew02/openpvz?include_prereleases)
 
+A open-source, ASCII grahpics interpretation of the game Plants vs Zombies. 
+
 ## Manual
+
+Todo
 
 ## Dependencies
   + ncurses for now but am looking to: https://github.com/infinnovation-dev/incurses
