@@ -10,6 +10,7 @@ executable(
   'src/main.cpp', 
   dependencies : deps, 
   sources : files(
+    'src/pvz.cpp'
   ),
   include_directories : inc,
   cpp_args : [
